@@ -1,159 +1,182 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title NFT Marketplace
+/// @title NFT Marketplace  
 /// @notice A simple NFT with marketplace functionality
-/// @dev ⚠️ THIS CONTRACT IS NOT GAS OPTIMIZED - OPTIMIZE IT!
+/// @dev Maximally gas-optimized with ERC721A-style batch minting
 contract NFTMarket {
-    // ⚠️ Not packed - wastes storage slots
+    error NotOwner();
+    error ContractPaused();
+    error MaxSupplyReached();
+    error InsufficientPayment();
+    error InvalidQuantity();
+    error ExceedsMaxPerTx();
+    error ExceedsMaxSupply();
+    error InvalidRecipient();
+    error NotListed();
+    error PaymentFailed();
+    error InvalidPrice();
+    error WithdrawFailed();
+    error NonexistentToken();
+
+    uint256 public immutable maxSupply;
+    uint256 public immutable mintPrice;
+    
+    address public owner;
+    uint48 public totalSupply;
+    uint8 private _paused;
+    
     string public name;
     string public symbol;
-    uint256 public totalSupply;
-    uint256 public maxSupply;
-    uint256 public mintPrice;
-    address public owner;
-    bool public paused;
     
-    // Mappings
-    mapping(uint256 => address) public ownerOf;
+    mapping(uint256 => address) private _owners;
     mapping(address => uint256) public balanceOf;
     mapping(uint256 => address) public approvals;
-    mapping(uint256 => uint256) public listings; // tokenId => price
+    mapping(uint256 => uint256) public listings;
     
-    // Events
     event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
     event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
     event Listed(uint256 indexed tokenId, uint256 price);
     event Sold(uint256 indexed tokenId, address buyer, uint256 price);
     
-    // ⚠️ Expensive string comparisons in constructor
     constructor(string memory _name, string memory _symbol) {
         name = _name;
         symbol = _symbol;
         maxSupply = 10000;
         mintPrice = 0.01 ether;
         owner = msg.sender;
-        paused = false;
+    }
+    
+    function paused() external view returns (bool) {
+        return _paused != 0;
     }
     
     modifier onlyOwner() {
-        // ⚠️ Expensive string in require
-        require(msg.sender == owner, "NFTMarket: caller is not the owner");
+        if (msg.sender != owner) revert NotOwner();
         _;
     }
     
-    modifier whenNotPaused() {
-        // ⚠️ Expensive string in require
-        require(!paused, "NFTMarket: contract is paused");
-        _;
+    function ownerOf(uint256 tokenId) public view returns (address) {
+        uint256 supply = totalSupply;
+        if (tokenId == 0 || tokenId > supply) revert NonexistentToken();
+        
+        unchecked {
+            for (uint256 curr = tokenId; curr != 0; --curr) {
+                address o = _owners[curr];
+                if (o != address(0)) return o;
+            }
+        }
+        revert NonexistentToken();
     }
     
-    /// @notice Mint a new NFT
-    /// @dev ⚠️ NOT OPTIMIZED
-    function mint() external payable whenNotPaused {
-        // ⚠️ Multiple storage reads
-        require(totalSupply < maxSupply, "NFTMarket: max supply reached");
-        require(msg.value >= mintPrice, "NFTMarket: insufficient payment");
+    function mint() external payable {
+        if (_paused != 0) revert ContractPaused();
         
-        // ⚠️ Could be unchecked
-        uint256 tokenId = totalSupply + 1;
-        totalSupply = tokenId;
+        uint256 supply = totalSupply;
+        if (supply >= maxSupply) revert MaxSupplyReached();
+        if (msg.value < mintPrice) revert InsufficientPayment();
         
-        ownerOf[tokenId] = msg.sender;
-        balanceOf[msg.sender] = balanceOf[msg.sender] + 1;
-        
-        emit Transfer(address(0), msg.sender, tokenId);
-    }
-    
-    /// @notice Batch mint multiple NFTs
-    /// @dev ⚠️ VERY EXPENSIVE - Optimize this!
-    function batchMint(uint256 quantity) external payable whenNotPaused {
-        require(quantity > 0, "NFTMarket: quantity must be > 0");
-        require(quantity <= 20, "NFTMarket: max 20 per tx");
-        require(totalSupply + quantity <= maxSupply, "NFTMarket: exceeds max supply");
-        require(msg.value >= mintPrice * quantity, "NFTMarket: insufficient payment");
-        
-        // ⚠️ Loop with storage writes each iteration
-        for (uint256 i = 0; i < quantity; i++) {
-            uint256 tokenId = totalSupply + 1;
-            totalSupply = tokenId;
-            ownerOf[tokenId] = msg.sender;
-            balanceOf[msg.sender] = balanceOf[msg.sender] + 1;
+        unchecked {
+            uint256 tokenId = supply + 1;
+            totalSupply = uint48(tokenId);
+            _owners[tokenId] = msg.sender;
+            ++balanceOf[msg.sender];
             emit Transfer(address(0), msg.sender, tokenId);
         }
     }
     
-    /// @notice Transfer an NFT
-    /// @dev ⚠️ NOT OPTIMIZED
-    function transfer(address to, uint256 tokenId) external {
-        // ⚠️ Multiple storage reads of same value
-        require(ownerOf[tokenId] == msg.sender, "NFTMarket: not owner");
-        require(to != address(0), "NFTMarket: invalid recipient");
+    function batchMint(uint256 quantity) external payable {
+        if (_paused != 0) revert ContractPaused();
+        if (quantity == 0) revert InvalidQuantity();
+        if (quantity > 20) revert ExceedsMaxPerTx();
         
-        // Clear approval
-        if (approvals[tokenId] != address(0)) {
-            approvals[tokenId] = address(0);
+        uint256 supply = totalSupply;
+        
+        unchecked {
+            uint256 newSupply = supply + quantity;
+            if (newSupply > maxSupply) revert ExceedsMaxSupply();
+            if (msg.value < mintPrice * quantity) revert InsufficientPayment();
+            
+            address minter = msg.sender;
+            uint256 firstId = supply + 1;
+            
+            totalSupply = uint48(newSupply);
+            _owners[firstId] = minter;
+            balanceOf[minter] += quantity;
+            
+            // Assembly emit for minimal loop overhead
+            /// @solidity memory-safe-assembly
+            assembly {
+                // keccak256("Transfer(address,address,uint256)")
+                let sig := 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
+                for { let id := firstId } lt(id, add(firstId, quantity)) { id := add(id, 1) } {
+                    log4(0, 0, sig, 0, minter, id)
+                }
+            }
+        }
+    }
+    
+    function transfer(address to, uint256 tokenId) external {
+        if (ownerOf(tokenId) != msg.sender) revert NotOwner();
+        if (to == address(0)) revert InvalidRecipient();
+        
+        delete approvals[tokenId];
+        
+        unchecked {
+            --balanceOf[msg.sender];
+            ++balanceOf[to];
         }
         
-        // ⚠️ Could be unchecked
-        balanceOf[msg.sender] = balanceOf[msg.sender] - 1;
-        balanceOf[to] = balanceOf[to] + 1;
-        ownerOf[tokenId] = to;
-        
+        _owners[tokenId] = to;
         emit Transfer(msg.sender, to, tokenId);
     }
     
-    /// @notice Approve another address to transfer
     function approve(address to, uint256 tokenId) external {
-        require(ownerOf[tokenId] == msg.sender, "NFTMarket: not owner");
+        if (ownerOf(tokenId) != msg.sender) revert NotOwner();
         approvals[tokenId] = to;
         emit Approval(msg.sender, to, tokenId);
     }
     
-    /// @notice List NFT for sale
     function list(uint256 tokenId, uint256 price) external {
-        require(ownerOf[tokenId] == msg.sender, "NFTMarket: not owner");
-        require(price > 0, "NFTMarket: price must be > 0");
+        if (ownerOf(tokenId) != msg.sender) revert NotOwner();
+        if (price == 0) revert InvalidPrice();
         listings[tokenId] = price;
         emit Listed(tokenId, price);
     }
     
-    /// @notice Buy a listed NFT
     function buy(uint256 tokenId) external payable {
         uint256 price = listings[tokenId];
-        require(price > 0, "NFTMarket: not listed");
-        require(msg.value >= price, "NFTMarket: insufficient payment");
+        if (price == 0) revert NotListed();
+        if (msg.value < price) revert InsufficientPayment();
         
-        address seller = ownerOf[tokenId];
+        address seller = ownerOf(tokenId);
         
-        // Transfer NFT
-        balanceOf[seller] = balanceOf[seller] - 1;
-        balanceOf[msg.sender] = balanceOf[msg.sender] + 1;
-        ownerOf[tokenId] = msg.sender;
-        listings[tokenId] = 0;
-        approvals[tokenId] = address(0);
+        unchecked {
+            --balanceOf[seller];
+            ++balanceOf[msg.sender];
+        }
         
-        // Pay seller
+        _owners[tokenId] = msg.sender;
+        delete listings[tokenId];
+        delete approvals[tokenId];
+        
         (bool success, ) = seller.call{value: price}("");
-        require(success, "NFTMarket: payment failed");
+        if (!success) revert PaymentFailed();
         
         emit Transfer(seller, msg.sender, tokenId);
         emit Sold(tokenId, msg.sender, price);
     }
     
-    /// @notice Pause the contract
     function pause() external onlyOwner {
-        paused = true;
+        _paused = 1;
     }
     
-    /// @notice Unpause the contract
     function unpause() external onlyOwner {
-        paused = false;
+        _paused = 0;
     }
     
-    /// @notice Withdraw contract balance
     function withdraw() external onlyOwner {
         (bool success, ) = owner.call{value: address(this).balance}("");
-        require(success, "NFTMarket: withdraw failed");
+        if (!success) revert WithdrawFailed();
     }
 }

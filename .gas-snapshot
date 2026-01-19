@@ -1,0 +1,6 @@
+GasTest:test_BatchMintGas() (gas: 90552)
+GasTest:test_BatchMintWorks() (gas: 130840)
+GasTest:test_MintGas() (gas: 72539)
+GasTest:test_MintWorks() (gas: 72117)
+GasTest:test_TransferGas() (gas: 83571)
+GasTest:test_TransferWorks() (gas: 83537)
