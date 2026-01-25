@@ -15,7 +15,7 @@ contract GasTest is Test {
     uint256 constant BATCH_MINT_GAS_TARGET = 80000;
 
     function setUp() public {
-        nft = new GasOptimized("TestNFT", "TNFT");
+        nft = new GasOptimized(); // No constructor arguments
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
         vm.deal(user1, 100 ether);
@@ -23,9 +23,8 @@ contract GasTest is Test {
     }
 
     function test_MintGas() public {
-        vm.prank(user1);
         uint256 gasBefore = gasleft();
-        nft.mint{value: 0.01 ether}();
+        nft.mint(user1, 1); // mint(address to, uint256 quantity)
         uint256 gasUsed = gasBefore - gasleft();
         
         console.log("mint() gas used:", gasUsed);
@@ -37,8 +36,7 @@ contract GasTest is Test {
 
     function test_TransferGas() public {
         // First mint
-        vm.prank(user1);
-        nft.mint{value: 0.01 ether}();
+        nft.mint(user1, 1);
         
         // Measure transfer
         vm.prank(user1);
@@ -54,9 +52,8 @@ contract GasTest is Test {
     }
 
     function test_BatchMintGas() public {
-        vm.prank(user1);
         uint256 gasBefore = gasleft();
-        nft.batchMint{value: 0.1 ether}(10);
+        nft.mint(user1, 10); // Batch mint 10 NFTs
         uint256 gasUsed = gasBefore - gasleft();
         
         console.log("batchMint(10) gas used:", gasUsed);
@@ -68,8 +65,7 @@ contract GasTest is Test {
 
     // Functionality tests (must all pass)
     function test_MintWorks() public {
-        vm.prank(user1);
-        nft.mint{value: 0.01 ether}();
+        nft.mint(user1, 1);
         
         assertEq(nft.ownerOf(1), user1);
         assertEq(nft.balanceOf(user1), 1);
@@ -77,8 +73,7 @@ contract GasTest is Test {
     }
 
     function test_TransferWorks() public {
-        vm.prank(user1);
-        nft.mint{value: 0.01 ether}();
+        nft.mint(user1, 1);
         
         vm.prank(user1);
         nft.transfer(user2, 1);
@@ -89,8 +84,7 @@ contract GasTest is Test {
     }
 
     function test_BatchMintWorks() public {
-        vm.prank(user1);
-        nft.batchMint{value: 0.1 ether}(10);
+        nft.mint(user1, 10);
         
         assertEq(nft.totalSupply(), 10);
         assertEq(nft.balanceOf(user1), 10);

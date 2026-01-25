@@ -39,9 +39,9 @@ contract GasOptimized {
     event Listed(uint256 indexed tokenId, uint256 price);
     event Sold(uint256 indexed tokenId, address buyer, uint256 price);
     
-    constructor(string memory _name, string memory _symbol) {
-        name = _name;
-        symbol = _symbol;
+    constructor() {
+        name = "NFTMarket";
+        symbol = "NFTM";
         maxSupply = 10000;
         mintPrice = 0.01 ether;
         owner = msg.sender;
@@ -69,40 +69,24 @@ contract GasOptimized {
         revert NonexistentToken();
     }
     
-    function mint() external payable {
-        if (_paused != 0) revert ContractPaused();
-        
-        uint256 supply = totalSupply;
-        if (supply >= maxSupply) revert MaxSupplyReached();
-        if (msg.value < mintPrice) revert InsufficientPayment();
-        
-        unchecked {
-            uint256 tokenId = supply + 1;
-            totalSupply = uint48(tokenId);
-            _owners[tokenId] = msg.sender;
-            ++balanceOf[msg.sender];
-            emit Transfer(address(0), msg.sender, tokenId);
-        }
-    }
-    
-    function batchMint(uint256 quantity) external payable {
+    /// @notice Mint NFTs to an address
+    /// @param to Address to mint to
+    /// @param quantity Number of NFTs to mint (1 for single mint)
+    function mint(address to, uint256 quantity) external {
         if (_paused != 0) revert ContractPaused();
         if (quantity == 0) revert InvalidQuantity();
-        if (quantity > 20) revert ExceedsMaxPerTx();
         
         uint256 supply = totalSupply;
         
         unchecked {
             uint256 newSupply = supply + quantity;
-            if (newSupply > maxSupply) revert ExceedsMaxSupply();
-            if (msg.value < mintPrice * quantity) revert InsufficientPayment();
+            if (newSupply > maxSupply) revert MaxSupplyReached();
             
-            address minter = msg.sender;
             uint256 firstId = supply + 1;
             
             totalSupply = uint48(newSupply);
-            _owners[firstId] = minter;
-            balanceOf[minter] += quantity;
+            _owners[firstId] = to;
+            balanceOf[to] += quantity;
             
             // Assembly emit for minimal loop overhead
             /// @solidity memory-safe-assembly
@@ -110,7 +94,7 @@ contract GasOptimized {
                 // keccak256("Transfer(address,address,uint256)")
                 let sig := 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
                 for { let id := firstId } lt(id, add(firstId, quantity)) { id := add(id, 1) } {
-                    log4(0, 0, sig, 0, minter, id)
+                    log4(0, 0, sig, 0, to, id)
                 }
             }
         }
