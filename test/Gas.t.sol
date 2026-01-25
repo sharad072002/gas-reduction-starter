@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import "../src/NFTMarket.sol";
 
 contract GasTest is Test {
-    NFTMarket public nft;
+    GasOptimized public nft;
     address public user1;
     address public user2;
 
@@ -15,7 +15,7 @@ contract GasTest is Test {
     uint256 constant BATCH_MINT_GAS_TARGET = 80000;
 
     function setUp() public {
-        nft = new NFTMarket("TestNFT", "TNFT");
+        nft = new GasOptimized("TestNFT", "TNFT");
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
         vm.deal(user1, 100 ether);

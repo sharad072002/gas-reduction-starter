@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 /// @title NFT Marketplace  
 /// @notice A simple NFT with marketplace functionality
 /// @dev Maximally gas-optimized with ERC721A-style batch minting
-contract NFTMarket {
+contract GasOptimized {
     error NotOwner();
     error ContractPaused();
     error MaxSupplyReached();
